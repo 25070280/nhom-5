@@ -1,14 +1,13 @@
 <?php
-$host = 'localhost';
-$dbname = 'personal_finance_manager';
-$username = 'root';
-$password = '';
+$cfg  = require __DIR__ . '/config.local.php';
+$port = $cfg['port'] ?? 3306;   // không ghi cổng thì dùng 3306
 
-try {
-    $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-} catch (PDOException $e) {
-    die("Lỗi kết nối cơ sở dữ liệu: " . $e->getMessage());
-}
-?>
+$pdo = new PDO(
+    "mysql:host={$cfg['host']};port={$port};dbname={$cfg['dbname']};charset=utf8mb4",
+    $cfg['user'],
+    $cfg['pass'],
+    [
+        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ]
+);
