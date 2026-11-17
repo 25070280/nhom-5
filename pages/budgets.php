@@ -2,6 +2,8 @@
 // budgets.php: trang tạm. Sẽ làm ở chức năng FR05.
 $pageTitle  = 'Hạn mức';
 $activePage = 'budgets';
+require __DIR__ . '/../includes/auth.php';
+require_login();          // chưa đăng nhập thì chuyển về trang login
 require __DIR__ . '/../includes/header.php';
 ?>
 <div class="top"><h1>Hạn mức</h1></div>

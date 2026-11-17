@@ -3,6 +3,8 @@
 // HIỆN TẠI là trang mẫu với số liệu cố định; sẽ thay bằng dữ liệu thật ở FR05, FR06.
 $pageTitle  = 'Tổng quan';
 $activePage = 'dashboard';
+require __DIR__ . '/../includes/auth.php';
+require_login();          // chưa đăng nhập thì chuyển về trang login
 require __DIR__ . '/../includes/header.php';
 ?>
 <div class="top">

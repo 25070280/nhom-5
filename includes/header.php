@@ -34,6 +34,12 @@ $menu = [
     <?php foreach ($menu as $key => [$label, $file]): ?>
       <a class="nav<?= $key === $activePage ? ' on' : '' ?>" href="<?= $file ?>"><?= $label ?></a>
     <?php endforeach; ?>
+    <?php if (!empty($_SESSION['user_id'])): ?>
+      <div class="who">
+        <div>Xin chào, <strong><?= htmlspecialchars($_SESSION['user_name'] ?? '') ?></strong></div>
+        <a href="logout.php">Đăng xuất</a>
+      </div>
+    <?php endif; ?>
   </nav>
   <main class="main">
 <?php else: ?>

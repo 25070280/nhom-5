@@ -1,4 +1,4 @@
-/* giao diện chung cho mọi trang, bám theo phác thảo (wireframe) */
+/* style.css: giao diện chung cho mọi trang, bám theo phác thảo (wireframe) */
 
 * { box-sizing: border-box; }
 body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #222; background: #f3f4f6; }
@@ -7,7 +7,7 @@ a:hover { color: #172554; }
 h1 { margin: 0; font-size: 24px; }
 h2 { margin: 0; font-size: 18px; }
 
-/* Khung có menu bên trái */
+/* ---------- Khung có menu bên trái ---------- */
 .shell { display: flex; flex-wrap: wrap; min-height: 100vh; }
 .side { flex: 0 0 220px; background: #fff; border-right: 1px solid #c4c7cc; padding: 20px 16px; display: flex; flex-direction: column; gap: 6px; }
 .brand { font-weight: 700; font-size: 18px; margin-bottom: 16px; }
@@ -17,10 +17,10 @@ h2 { margin: 0; font-size: 18px; }
 .main { flex: 999 1 560px; min-width: 0; padding: 24px 32px; display: flex; flex-direction: column; gap: 20px; }
 .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 
-/* Trang không có menu (đăng nhập, đăng ký) */
+/* ---------- Trang không có menu (đăng nhập, đăng ký) ---------- */
 .solo { min-height: 100vh; padding: 48px 32px; display: flex; flex-direction: column; align-items: center; gap: 32px; }
 
-/* Thẻ, form, nút  */
+/* ---------- Thẻ, form, nút ---------- */
 .card { background: #fff; border: 1px solid #c4c7cc; border-radius: 8px; padding: 20px; }
 .field label { display: block; font-size: 13px; color: #4b5563; margin-bottom: 4px; }
 .inp { width: 100%; min-height: 44px; border: 1px solid #9aa0a6; border-radius: 6px; padding: 10px 12px; background: #fff; font: inherit; color: #222; }
@@ -30,20 +30,20 @@ h2 { margin: 0; font-size: 18px; }
 .btn.ghost { background: #fff; color: #222; }
 .btn.ghost:hover { background: #f3f4f6; color: #222; }
 
-/* Thông báo  */
+/* ---------- Thông báo ---------- */
 .msg  { font-size: 13px; color: #7f1d1d; margin-top: 4px; }
 .err  { border: 2px solid #b91c1c; background: #fef2f2; color: #7f1d1d; border-radius: 6px; padding: 10px 12px; font-size: 14px; }
 .warn { border: 2px solid #b45309; background: #fffbeb; color: #7c2d12; border-radius: 8px; padding: 12px 16px; font-size: 14px; }
 .ok   { border: 2px solid #166534; background: #f0fdf4; color: #14532d; border-radius: 8px; padding: 12px 16px; font-size: 14px; }
 .hint { font-size: 13px; color: #4b5563; }
 
-/* Thẻ số liệu (tổng thu, tổng chi, số dư) */
+/* ---------- Thẻ số liệu (tổng thu, tổng chi, số dư) ---------- */
 .stats { display: flex; flex-wrap: wrap; gap: 16px; }
 .stats .card { flex: 1 1 220px; }
 .lbl { font-size: 13px; color: #4b5563; }
 .big { font-size: 28px; font-weight: 700; margin-top: 6px; }
 
-/* Bảng  */
+/* ---------- Bảng ---------- */
 .tablebox { background: #fff; border: 1px solid #c4c7cc; border-radius: 8px; overflow-x: auto; }
 .tb { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 520px; }
 .tb th { text-align: left; background: #e5e7eb; padding: 11px 12px; border-bottom: 1px solid #c4c7cc; }
@@ -52,7 +52,13 @@ h2 { margin: 0; font-size: 18px; }
 .tag { display: inline-block; border: 1px solid #6b7280; border-radius: 999px; padding: 2px 10px; font-size: 12px; }
 .lnk { color: #1f3a8a; margin-right: 12px; text-decoration: underline; }
 
-/* Thanh mức sử dụng hạn mức  */
+/* ---------- Thanh mức sử dụng hạn mức ---------- */
 .bar { height: 10px; border-radius: 5px; background: #e5e7eb; overflow: hidden; min-width: 120px; }
 .fill { height: 100%; background: #6b7280; }
 .fill.over { background: #b45309; }
+
+/* ---------- Đăng nhập, đăng ký, khối người dùng ---------- */
+.auth { width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 14px; }
+.form { display: flex; flex-direction: column; gap: 14px; }
+.who { margin-top: auto; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
+.card > h2 { margin-bottom: 12px; }

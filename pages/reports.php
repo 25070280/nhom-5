@@ -2,6 +2,8 @@
 // reports.php: trang tạm. Sẽ làm ở chức năng FR06.
 $pageTitle  = 'Thống kê';
 $activePage = 'reports';
+require __DIR__ . '/../includes/auth.php';
+require_login();          // chưa đăng nhập thì chuyển về trang login
 require __DIR__ . '/../includes/header.php';
 ?>
 <div class="top"><h1>Thống kê</h1></div>
