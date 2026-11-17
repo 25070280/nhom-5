@@ -12,9 +12,9 @@ $budget_warning = '';
 // 1. XỬ LÝ XÓA GIAO DỊCH (FR02 - BR03)
 if (isset($_GET['delete_id'])) {
     $delete_id = (int)$_GET['delete_id'];
-    $stmt = $conn->prepare("DELETE FROM transactions WHERE transaction_id = ? AND user_id = ?");
-    $stmt->bind_param("ii", $delete_id, $user_id);
-    if ($stmt->execute() && $stmt->affected_rows > 0) {
+    $stmt = $pdo->prepare("DELETE FROM transactions WHERE transaction_id = ? AND user_id = ?");
+    $stmt->execute([$delete_id, $user_id]);
+    if ($stmt->rowCount() > 0) {
         $message = "Đã xóa giao dịch thành công.";
     } else {
         $error = "Không thể xóa giao dịch hoặc giao dịch không tồn tại.";
@@ -34,24 +34,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($category_id <= 0 || empty($transaction_date)) {
         $error = "Vui lòng chọn đầy đủ danh mục và ngày giao dịch.";
     } else {
-        $cat_stmt = $conn->prepare("SELECT name, type FROM categories WHERE category_id = ? AND (user_id = ? OR user_id IS NULL)");
-        $cat_stmt->bind_param("ii", $category_id, $user_id);
-        $cat_stmt->execute();
-        $cat_info = $cat_stmt->get_result()->fetch_assoc();
+        $cat_stmt = $pdo->prepare("SELECT name, type FROM categories WHERE category_id = ? AND (user_id = ? OR user_id IS NULL)");
+        $cat_stmt->execute([$category_id, $user_id]);
+        $cat_info = $cat_stmt->fetch();
 
         if (!$cat_info) {
             $error = "Danh mục không hợp lệ.";
         } else {
             if ($transaction_id > 0) {
-                $stmt = $conn->prepare("UPDATE transactions SET category_id = ?, amount = ?, transaction_date = ?, note = ? WHERE transaction_id = ? AND user_id = ?");
-                $stmt->bind_param("idssii", $category_id, $amount, $transaction_date, $note, $transaction_id, $user_id);
-                if ($stmt->execute()) {
+                $stmt = $pdo->prepare("UPDATE transactions SET category_id = ?, amount = ?, transaction_date = ?, note = ? WHERE transaction_id = ? AND user_id = ?");
+                if ($stmt->execute([$category_id, $amount, $transaction_date, $note, $transaction_id, $user_id])) {
                     $message = "Cập nhật giao dịch thành công.";
                 }
             } else {
-                $stmt = $conn->prepare("INSERT INTO transactions (user_id, category_id, amount, transaction_date, note) VALUES (?, ?, ?, ?, ?)");
-                $stmt->bind_param("iidss", $user_id, $category_id, $amount, $transaction_date, $note);
-                if ($stmt->execute()) {
+                $stmt = $pdo->prepare("INSERT INTO transactions (user_id, category_id, amount, transaction_date, note) VALUES (?, ?, ?, ?, ?)");
+                if ($stmt->execute([$user_id, $category_id, $amount, $transaction_date, $note])) {
                     $message = "Thêm giao dịch mới thành công.";
                 }
             }
@@ -59,16 +56,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Kiểm tra cảnh báo hạn mức ngân sách tháng nếu là khoản CHI (BR05)
             if ($cat_info['type'] === 'EXPENSE') {
                 $month_str = date('Y-m', strtotime($transaction_date));
-                $b_stmt = $conn->prepare("SELECT limit_amount FROM budgets WHERE user_id = ? AND category_id = ? AND DATE_FORMAT(month_year, '%Y-%m') = ?");
-                $b_stmt->bind_param("iis", $user_id, $category_id, $month_str);
-                $b_stmt->execute();
-                $budget = $b_stmt->get_result()->fetch_assoc();
+                $b_stmt = $pdo->prepare("SELECT limit_amount FROM budgets WHERE user_id = ? AND category_id = ? AND DATE_FORMAT(month_year, '%Y-%m') = ?");
+                $b_stmt->execute([$user_id, $category_id, $month_str]);
+                $budget = $b_stmt->fetch();
 
                 if ($budget && $budget['limit_amount'] > 0) {
-                    $s_stmt = $conn->prepare("SELECT COALESCE(SUM(amount), 0) AS total_spent FROM transactions WHERE user_id = ? AND category_id = ? AND DATE_FORMAT(transaction_date, '%Y-%m') = ?");
-                    $s_stmt->bind_param("iis", $user_id, $category_id, $month_str);
-                    $s_stmt->execute();
-                    $spent = (float)$s_stmt->get_result()->fetch_assoc()['total_spent'];
+                    $s_stmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) AS total_spent FROM transactions WHERE user_id = ? AND category_id = ? AND DATE_FORMAT(transaction_date, '%Y-%m') = ?");
+                    $s_stmt->execute([$user_id, $category_id, $month_str]);
+                    $spent = (float)$s_stmt->fetch()['total_spent'];
                     $limit = (float)$budget['limit_amount'];
                     $percent = round(($spent / $limit) * 100, 1);
 
@@ -87,21 +82,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $edit_data = null;
 if (isset($_GET['edit_id'])) {
     $edit_id = (int)$_GET['edit_id'];
-    $stmt = $conn->prepare("SELECT * FROM transactions WHERE transaction_id = ? AND user_id = ?");
-    $stmt->bind_param("ii", $edit_id, $user_id);
-    $stmt->execute();
-    $edit_data = $stmt->get_result()->fetch_assoc();
+    $stmt = $pdo->prepare("SELECT * FROM transactions WHERE transaction_id = ? AND user_id = ?");
+    $stmt->execute([$edit_id, $user_id]);
+    $edit_data = $stmt->fetch();
 }
 
 // 4. LẤY DANH SÁCH DANH MỤC CỦA NGƯỜI DÙNG
-$cat_list = [];
-$c_stmt = $conn->prepare("SELECT category_id, name, type FROM categories WHERE user_id = ? OR user_id IS NULL ORDER BY type ASC, name ASC");
-$c_stmt->bind_param("i", $user_id);
-$c_stmt->execute();
-$c_res = $c_stmt->get_result();
-while ($row = $c_res->fetch_assoc()) {
-    $cat_list[] = $row;
-}
+$c_stmt = $pdo->prepare("SELECT category_id, name, type FROM categories WHERE user_id = ? OR user_id IS NULL ORDER BY type ASC, name ASC");
+$c_stmt->execute([$user_id]);
+$cat_list = $c_stmt->fetchAll();
 
 // 5. XỬ LÝ BỘ LỌC & TÌM KIẾM ĐA TIÊU CHÍ (FR04)
 $from_date   = $_GET['from_date'] ?? '';
@@ -115,45 +104,36 @@ $sql = "SELECT t.transaction_id, t.amount, t.transaction_date, t.note, c.name AS
         JOIN categories c ON t.category_id = c.category_id
         WHERE t.user_id = ?";
 $params = [$user_id];
-$types  = "i";
 
 if ($from_date !== '') {
     $sql .= " AND t.transaction_date >= ?";
     $params[] = $from_date;
-    $types .= "s";
 }
 if ($to_date !== '') {
     $sql .= " AND t.transaction_date <= ?";
     $params[] = $to_date;
-    $types .= "s";
 }
 if ($filter_type === 'INCOME' || $filter_type === 'EXPENSE') {
     $sql .= " AND c.type = ?";
     $params[] = $filter_type;
-    $types .= "s";
 }
 if ($filter_cat > 0) {
     $sql .= " AND t.category_id = ?";
     $params[] = $filter_cat;
-    $types .= "i";
 }
 if ($keyword !== '') {
     $sql .= " AND t.note LIKE ?";
     $params[] = "%" . $keyword . "%";
-    $types .= "s";
 }
 
 $sql .= " ORDER BY t.transaction_date DESC, t.transaction_id DESC";
-$t_stmt = $conn->prepare($sql);
-$t_stmt->bind_param($types, ...$params);
-$t_stmt->execute();
-$t_res = $t_stmt->get_result();
+$t_stmt = $pdo->prepare($sql);
+$t_stmt->execute($params);
+$transactions = $t_stmt->fetchAll();
 
-$transactions  = [];
 $total_income  = 0;
 $total_expense = 0;
-while ($row = $t_res->fetch_assoc()) {
-    $transactions[] = $row;
+foreach ($transactions as $row) {
     if ($row['category_type'] === 'INCOME') {
         $total_income += (float)$row['amount'];
     } else {
