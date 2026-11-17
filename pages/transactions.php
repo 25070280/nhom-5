@@ -1,305 +1,328 @@
 <?php
 session_start();
-require_once '../config/db.php';
+require_once __DIR__ . '/../config/db.php';
 
-// Kiểm tra đăng nhập (Bật lại khi ghép với FR01 của bạn)
-// if (!isset($_SESSION['user_id'])) { header("Location: login.php"); exit; }
-$user_id = $_SESSION['user_id'] ?? 1;
+// Lấy user_id từ session nếu có, mặc định dùng user_id = 1 để chạy độc lập (BR03)
+$user_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 1;
 
-$success_msg = '';
-$warning_msg = '';
-$errors = [];
+$message = '';
+$error = '';
+$budget_warning = '';
 
-$form_data = [
-    'transaction_id' => '',
-    'category_id' => '',
-    'amount' => '',
-    'transaction_date' => date('Y-m-d'),
-    'note' => ''
-];
-
-// 1. XÓA GIAO DỊCH (FR02 - Có xác nhận & kiểm tra quyền BR03)
+// 1. XỬ LÝ XÓA GIAO DỊCH (FR02 - BR03)
 if (isset($_GET['delete_id'])) {
     $delete_id = (int)$_GET['delete_id'];
-    $stmt = $pdo->prepare("DELETE FROM transactions WHERE transaction_id = ? AND user_id = ?");
-    if ($stmt->execute([$delete_id, $user_id]) && $stmt->rowCount() > 0) {
-        header("Location: transactions.php?msg=deleted");
-        exit;
+    $stmt = $conn->prepare("DELETE FROM transactions WHERE transaction_id = ? AND user_id = ?");
+    $stmt->bind_param("ii", $delete_id, $user_id);
+    if ($stmt->execute() && $stmt->affected_rows > 0) {
+        $message = "Đã xóa giao dịch thành công.";
     } else {
-        $errors['general'] = "Không thể xóa giao dịch này.";
+        $error = "Không thể xóa giao dịch hoặc giao dịch không tồn tại.";
     }
 }
 
-// 2. THÊM / SỬA GIAO DỊCH (FR02 & UC04)
+// 2. XỬ LÝ THÊM HOẶC CẬP NHẬT GIAO DỊCH (FR02 - BR01, BR03, BR04, BR05)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'] ?? 'add';
-    $trans_id = (int)($_POST['transaction_id'] ?? 0);
-    $category_id = (int)($_POST['category_id'] ?? 0);
-    $amount_raw = trim($_POST['amount'] ?? '');
-    $transaction_date = trim($_POST['transaction_date'] ?? '');
-    $note = trim($_POST['note'] ?? '');
+    $transaction_id   = isset($_POST['transaction_id']) ? (int)$_POST['transaction_id'] : 0;
+    $category_id      = (int)($_POST['category_id'] ?? 0);
+    $amount           = (float)($_POST['amount'] ?? 0);
+    $transaction_date = $_POST['transaction_date'] ?? '';
+    $note             = trim($_POST['note'] ?? '');
 
-    $form_data = [
-        'transaction_id' => $trans_id,
-        'category_id' => $category_id,
-        'amount' => $amount_raw,
-        'transaction_date' => $transaction_date,
-        'note' => $note
-    ];
-
-    // Kiểm tra danh mục thuộc quyền sở hữu người dùng (BR03 & Mục 3.1.3)
-    if ($category_id <= 0) {
-        $errors['category_id'] = "Vui lòng chọn danh mục.";
+    if ($amount <= 0) {
+        $error = "Số tiền giao dịch phải lớn hơn 0 (BR01).";
+    } elseif ($category_id <= 0 || empty($transaction_date)) {
+        $error = "Vui lòng chọn đầy đủ danh mục và ngày giao dịch.";
     } else {
-        $stmt_cat_check = $pdo->prepare("SELECT category_id, name, type FROM categories WHERE category_id = ? AND (user_id = ? OR is_default = 1)");
-        $stmt_cat_check->execute([$category_id, $user_id]);
-        $valid_category = $stmt_cat_check->fetch();
-        if (!$valid_category) {
-            $errors['category_id'] = "Danh mục không hợp lệ.";
-        }
-    }
+        $cat_stmt = $conn->prepare("SELECT name, type FROM categories WHERE category_id = ? AND (user_id = ? OR user_id IS NULL)");
+        $cat_stmt->bind_param("ii", $category_id, $user_id);
+        $cat_stmt->execute();
+        $cat_info = $cat_stmt->get_result()->fetch_assoc();
 
-    // Kiểm tra số tiền > 0 (BR01)
-    if ($amount_raw === '' || !is_numeric($amount_raw) || (int)$amount_raw <= 0) {
-        $errors['amount'] = "Số tiền phải lớn hơn 0.";
-    }
-
-    // Kiểm tra ngày hợp lệ
-    if (empty($transaction_date)) {
-        $errors['transaction_date'] = "Vui lòng chọn ngày giao dịch.";
-    } else {
-        $d = DateTime::createFromFormat('Y-m-d', $transaction_date);
-        if (!$d || $d->format('Y-m-d') !== $transaction_date) {
-            $errors['transaction_date'] = "Ngày giao dịch không hợp lệ.";
-        }
-    }
-
-    if (empty($errors)) {
-        $amount = (int)$amount_raw;
-
-        if ($action === 'add') {
-            $stmt = $pdo->prepare("INSERT INTO transactions (user_id, category_id, amount, transaction_date, note) VALUES (?, ?, ?, ?, ?)");
-            $stmt->execute([$user_id, $category_id, $amount, $transaction_date, $note]);
-            $msg_type = 'added';
+        if (!$cat_info) {
+            $error = "Danh mục không hợp lệ.";
         } else {
-            $stmt = $pdo->prepare("UPDATE transactions SET category_id = ?, amount = ?, transaction_date = ?, note = ? WHERE transaction_id = ? AND user_id = ?");
-            $stmt->execute([$category_id, $amount, $transaction_date, $note, $trans_id, $user_id]);
-            $msg_type = 'updated';
-        }
+            if ($transaction_id > 0) {
+                $stmt = $conn->prepare("UPDATE transactions SET category_id = ?, amount = ?, transaction_date = ?, note = ? WHERE transaction_id = ? AND user_id = ?");
+                $stmt->bind_param("idssii", $category_id, $amount, $transaction_date, $note, $transaction_id, $user_id);
+                if ($stmt->execute()) {
+                    $message = "Cập nhật giao dịch thành công.";
+                }
+            } else {
+                $stmt = $conn->prepare("INSERT INTO transactions (user_id, category_id, amount, transaction_date, note) VALUES (?, ?, ?, ?, ?)");
+                $stmt->bind_param("iidss", $user_id, $category_id, $amount, $transaction_date, $note);
+                if ($stmt->execute()) {
+                    $message = "Thêm giao dịch mới thành công.";
+                }
+            }
 
-        // UC04 Bước 5: Kiểm tra cảnh báo vượt hạn mức (nếu là khoản CHI)
-        $warn_param = '';
-        if ($valid_category['type'] === 'EXPENSE') {
-            $m = (int)date('m', strtotime($transaction_date));
-            $y = (int)date('Y', strtotime($transaction_date));
-            try {
-                $stmt_b = $pdo->prepare("SELECT limit_amount FROM budgets WHERE user_id = ? AND category_id = ? AND month = ? AND year = ?");
-                $stmt_b->execute([$user_id, $category_id, $m, $y]);
-                $budget = $stmt_b->fetch();
+            // Kiểm tra cảnh báo hạn mức ngân sách tháng nếu là khoản CHI (BR05)
+            if ($cat_info['type'] === 'EXPENSE') {
+                $month_str = date('Y-m', strtotime($transaction_date));
+                $b_stmt = $conn->prepare("SELECT limit_amount FROM budgets WHERE user_id = ? AND category_id = ? AND DATE_FORMAT(month_year, '%Y-%m') = ?");
+                $b_stmt->bind_param("iis", $user_id, $category_id, $month_str);
+                $b_stmt->execute();
+                $budget = $b_stmt->get_result()->fetch_assoc();
 
                 if ($budget && $budget['limit_amount'] > 0) {
-                    $stmt_s = $pdo->prepare("SELECT SUM(amount) AS total FROM transactions WHERE user_id = ? AND category_id = ? AND MONTH(transaction_date) = ? AND YEAR(transaction_date) = ?");
-                    $stmt_s->execute([$user_id, $category_id, $m, $y]);
-                    $spent = (int)($stmt_s->fetch()['total'] ?? 0);
+                    $s_stmt = $conn->prepare("SELECT COALESCE(SUM(amount), 0) AS total_spent FROM transactions WHERE user_id = ? AND category_id = ? AND DATE_FORMAT(transaction_date, '%Y-%m') = ?");
+                    $s_stmt->bind_param("iis", $user_id, $category_id, $month_str);
+                    $s_stmt->execute();
+                    $spent = (float)$s_stmt->get_result()->fetch_assoc()['total_spent'];
+                    $limit = (float)$budget['limit_amount'];
+                    $percent = round(($spent / $limit) * 100, 1);
 
-                    if ($spent > $budget['limit_amount']) {
-                        $vuot = number_format($spent - $budget['limit_amount'], 0, ',', '.');
-                        $warn_param = "&warn=" . urlencode("Cảnh báo: Chi tiêu '{$valid_category['name']}' tháng {$m}/{$y} đã vượt hạn mức {$vuot} đ!");
+                    if ($percent >= 100) {
+                        $budget_warning = "Cảnh báo vượt hạn mức: Danh mục '{$cat_info['name']}' tháng {$month_str} đã chi " . number_format($spent) . "đ / " . number_format($limit) . "đ ({$percent}%).";
+                    } elseif ($percent >= 80) {
+                        $budget_warning = "Lưu ý hạn mức: Danh mục '{$cat_info['name']}' tháng {$month_str} đã đạt {$percent}% ngân sách (" . number_format($spent) . "đ / " . number_format($limit) . "đ).";
                     }
                 }
-            } catch (PDOException $e) {}
+            }
         }
-
-        header("Location: transactions.php?msg={$msg_type}{$warn_param}");
-        exit;
     }
 }
 
-if (isset($_GET['msg'])) {
-    $map = ['added' => 'Thêm giao dịch thành công!', 'updated' => 'Cập nhật giao dịch thành công!', 'deleted' => 'Đã xóa giao dịch!'];
-    $success_msg = $map[$_GET['msg']] ?? '';
-}
-if (isset($_GET['warn'])) {
-    $warning_msg = $_GET['warn'];
+// 3. LẤY DỮ LIỆU SỬA NẾU CÓ ?edit_id=...
+$edit_data = null;
+if (isset($_GET['edit_id'])) {
+    $edit_id = (int)$_GET['edit_id'];
+    $stmt = $conn->prepare("SELECT * FROM transactions WHERE transaction_id = ? AND user_id = ?");
+    $stmt->bind_param("ii", $edit_id, $user_id);
+    $stmt->execute();
+    $edit_data = $stmt->get_result()->fetch_assoc();
 }
 
-// 3. LẤY DỮ LIỆU KHI SỬA
-$is_edit = false;
-if (isset($_GET['edit_id']) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
-    $stmt = $pdo->prepare("SELECT * FROM transactions WHERE transaction_id = ? AND user_id = ?");
-    $stmt->execute([(int)$_GET['edit_id'], $user_id]);
-    if ($row = $stmt->fetch()) {
-        $is_edit = true;
-        $form_data = [
-            'transaction_id' => $row['transaction_id'],
-            'category_id' => $row['category_id'],
-            'amount' => (int)$row['amount'],
-            'transaction_date' => $row['transaction_date'],
-            'note' => $row['note']
-        ];
+// 4. LẤY DANH SÁCH DANH MỤC CỦA NGƯỜI DÙNG
+$cat_list = [];
+$c_stmt = $conn->prepare("SELECT category_id, name, type FROM categories WHERE user_id = ? OR user_id IS NULL ORDER BY type ASC, name ASC");
+$c_stmt->bind_param("i", $user_id);
+$c_stmt->execute();
+$c_res = $c_stmt->get_result();
+while ($row = $c_res->fetch_assoc()) {
+    $cat_list[] = $row;
+}
+
+// 5. XỬ LÝ BỘ LỌC & TÌM KIẾM ĐA TIÊU CHÍ (FR04)
+$from_date   = $_GET['from_date'] ?? '';
+$to_date     = $_GET['to_date'] ?? '';
+$filter_type = $_GET['type'] ?? '';
+$filter_cat  = isset($_GET['category_id']) ? (int)$_GET['category_id'] : 0;
+$keyword     = trim($_GET['keyword'] ?? '');
+
+$sql = "SELECT t.transaction_id, t.amount, t.transaction_date, t.note, c.name AS category_name, c.type AS category_type
+        FROM transactions t
+        JOIN categories c ON t.category_id = c.category_id
+        WHERE t.user_id = ?";
+$params = [$user_id];
+$types  = "i";
+
+if ($from_date !== '') {
+    $sql .= " AND t.transaction_date >= ?";
+    $params[] = $from_date;
+    $types .= "s";
+}
+if ($to_date !== '') {
+    $sql .= " AND t.transaction_date <= ?";
+    $params[] = $to_date;
+    $types .= "s";
+}
+if ($filter_type === 'INCOME' || $filter_type === 'EXPENSE') {
+    $sql .= " AND c.type = ?";
+    $params[] = $filter_type;
+    $types .= "s";
+}
+if ($filter_cat > 0) {
+    $sql .= " AND t.category_id = ?";
+    $params[] = $filter_cat;
+    $types .= "i";
+}
+if ($keyword !== '') {
+    $sql .= " AND t.note LIKE ?";
+    $params[] = "%" . $keyword . "%";
+    $types .= "s";
+}
+
+$sql .= " ORDER BY t.transaction_date DESC, t.transaction_id DESC";
+$t_stmt = $conn->prepare($sql);
+$t_stmt->bind_param($types, ...$params);
+$t_stmt->execute();
+$t_res = $t_stmt->get_result();
+
+$transactions  = [];
+$total_income  = 0;
+$total_expense = 0;
+while ($row = $t_res->fetch_assoc()) {
+    $transactions[] = $row;
+    if ($row['category_type'] === 'INCOME') {
+        $total_income += (float)$row['amount'];
+    } else {
+        $total_expense += (float)$row['amount'];
     }
-} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit') {
-    $is_edit = true;
 }
 
-// 4. LẤY DANH MỤC & DANH SÁCH GIAO DỊCH CỦA NGƯỜI DÙNG
-$stmt_cat = $pdo->prepare("SELECT * FROM categories WHERE user_id = ? OR is_default = 1 ORDER BY type ASC, name ASC");
-$stmt_cat->execute([$user_id]);
-$categories = $stmt_cat->fetchAll();
-
-$stmt_list = $pdo->prepare("SELECT t.*, c.name AS category_name, c.type AS category_type 
-                            FROM transactions t 
-                            JOIN categories c ON t.category_id = c.category_id 
-                            WHERE t.user_id = ? 
-                            ORDER BY t.transaction_date DESC, t.transaction_id DESC");
-$stmt_list->execute([$user_id]);
-$transactions = $stmt_list->fetchAll();
+// Gọi khung giao diện chung của nhóm
+$pageTitle  = 'Quản lý giao dịch';
+$activePage = 'transactions';
+require __DIR__ . '/../includes/header.php';
 ?>
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FR02 - Quản lý Giao dịch</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body class="bg-light">
-<!-- Thanh điều hướng chung cho các màn hình của nhóm -->
-<nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
-    <div class="container">
-        <a class="navbar-brand fw-bold" href="dashboard.php">Quản Lý Thu Chi</a>
-        <div class="navbar-nav">
-            <a class="nav-link" href="dashboard.php">Tổng quan</a>
-            <a class="nav-link active fw-semibold" href="transactions.php">Giao dịch (FR02)</a>
-            <a class="nav-link" href="categories.php">Danh mục</a>
-            <a class="nav-link" href="budgets.php">Hạn mức</a>
-            <a class="nav-link" href="profile.php">Hồ sơ</a>
-        </div>
+
+<div class="top">
+    <h1>Quản lý giao dịch</h1>
+</div>
+
+<?php if ($message): ?>
+    <div style="background:#dcfce7;color:#166534;padding:12px;border-radius:6px;"><?= htmlspecialchars($message) ?></div>
+<?php endif; ?>
+<?php if ($error): ?>
+    <div style="background:#fee2e2;color:#991b1b;padding:12px;border-radius:6px;"><?= htmlspecialchars($error) ?></div>
+<?php endif; ?>
+<?php if ($budget_warning): ?>
+    <div class="warn" role="status"><strong><?= htmlspecialchars($budget_warning) ?></strong></div>
+<?php endif; ?>
+
+<!-- Thống kê nhanh theo kết quả đang lọc -->
+<div class="stats">
+    <div class="card">
+        <div class="lbl">Tổng thu (đang lọc)</div>
+        <div class="big" style="color:#16a34a;">+<?= number_format($total_income) ?> đ</div>
     </div>
-</nav>
-
-<div class="container">
-    <?php if ($success_msg): ?>
-        <div class="alert alert-success alert-dismissible fade show"><?= htmlspecialchars($success_msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
-    <?php endif; ?>
-    <?php if ($warning_msg): ?>
-        <div class="alert alert-warning fw-semibold alert-dismissible fade show">⚠️ <?= htmlspecialchars($warning_msg) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
-    <?php endif; ?>
-    <?php if (isset($errors['general'])): ?>
-        <div class="alert alert-danger"><?= htmlspecialchars($errors['general']) ?></div>
-    <?php endif; ?>
-
-    <div class="row">
-        <!-- Form Thêm / Sửa giao dịch -->
-        <div class="col-md-4 mb-4">
-            <div class="card shadow-sm">
-                <div class="card-header bg-white fw-bold text-primary">
-                    <?= $is_edit ? 'Sửa giao dịch #' . $form_data['transaction_id'] : 'Thêm giao dịch mới' ?>
-                </div>
-                <div class="card-body">
-                    <form method="POST" action="transactions.php" novalidate>
-                        <input type="hidden" name="action" value="<?= $is_edit ? 'edit' : 'add' ?>">
-                        <?php if ($is_edit): ?>
-                            <input type="hidden" name="transaction_id" value="<?= htmlspecialchars($form_data['transaction_id']) ?>">
-                        <?php endif; ?>
-
-                        <div class="mb-3">
-                            <label class="form-label fw-semibold">Danh mục *</label>
-                            <select name="category_id" class="form-select <?= isset($errors['category_id']) ? 'is-invalid' : '' ?>">
-                                <option value="">-- Chọn danh mục --</option>
-                                <?php foreach ($categories as $cat): ?>
-                                    <option value="<?= $cat['category_id'] ?>" <?= ($form_data['category_id'] == $cat['category_id']) ? 'selected' : '' ?>>
-                                        [<?= $cat['type'] === 'INCOME' ? 'Thu' : 'Chi' ?>] <?= htmlspecialchars($cat['name']) ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                            <?php if (isset($errors['category_id'])): ?>
-                                <div class="invalid-feedback"><?= htmlspecialchars($errors['category_id']) ?></div>
-                            <?php endif; ?>
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label fw-semibold">Số tiền (VNĐ) *</label>
-                            <input type="number" name="amount" class="form-control <?= isset($errors['amount']) ? 'is-invalid' : '' ?>"
-                                   value="<?= htmlspecialchars($form_data['amount']) ?>" placeholder="Nhập số tiền > 0">
-                            <?php if (isset($errors['amount'])): ?>
-                                <div class="invalid-feedback"><?= htmlspecialchars($errors['amount']) ?></div>
-                            <?php endif; ?>
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label fw-semibold">Ngày giao dịch *</label>
-                            <input type="date" name="transaction_date" class="form-control <?= isset($errors['transaction_date']) ? 'is-invalid' : '' ?>"
-                                   value="<?= htmlspecialchars($form_data['transaction_date']) ?>">
-                            <?php if (isset($errors['transaction_date'])): ?>
-                                <div class="invalid-feedback"><?= htmlspecialchars($errors['transaction_date']) ?></div>
-                            <?php endif; ?>
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label fw-semibold">Ghi chú</label>
-                            <input type="text" name="note" class="form-control"
-                                   value="<?= htmlspecialchars($form_data['note']) ?>" placeholder="Ghi chú giao dịch...">
-                        </div>
-
-                        <div class="d-grid gap-2">
-                            <button type="submit" class="btn btn-primary"><?= $is_edit ? 'Cập nhật' : 'Lưu giao dịch' ?></button>
-                            <?php if ($is_edit): ?>
-                                <a href="transactions.php" class="btn btn-outline-secondary">Hủy</a>
-                            <?php endif; ?>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
-
-        <!-- Bảng danh sách giao dịch -->
-        <div class="col-md-8">
-            <div class="card shadow-sm">
-                <div class="card-header bg-white fw-bold">Danh sách giao dịch</div>
-                <div class="card-body p-0">
-                    <table class="table table-hover mb-0 align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Ngày</th>
-                                <th>Danh mục</th>
-                                <th>Ghi chú</th>
-                                <th class="text-end">Số tiền</th>
-                                <th class="text-center">Thao tác</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php if (empty($transactions)): ?>
-                                <tr><td colspan="5" class="text-center py-4 text-muted">Không có dữ liệu</td></tr>
-                            <?php else: ?>
-                                <?php foreach ($transactions as $t): ?>
-                                    <tr>
-                                        <td><?= date('d/m/Y', strtotime($t['transaction_date'])) ?></td>
-                                        <td>
-                                            <span class="badge <?= $t['category_type'] === 'INCOME' ? 'bg-success' : 'bg-danger' ?>">
-                                                <?= $t['category_type'] === 'INCOME' ? 'Thu' : 'Chi' ?>
-                                            </span>
-                                            <?= htmlspecialchars($t['category_name']) ?>
-                                        </td>
-                                        <td><?= htmlspecialchars($t['note']) ?></td>
-                                        <td class="text-end fw-bold <?= $t['category_type'] === 'INCOME' ? 'text-success' : 'text-danger' ?>">
-                                            <?= $t['category_type'] === 'INCOME' ? '+' : '-' ?><?= number_format($t['amount'], 0, ',', '.') ?> đ
-                                        </td>
-                                        <td class="text-center">
-                                            <a href="transactions.php?edit_id=<?= $t['transaction_id'] ?>" class="btn btn-sm btn-outline-primary">Sửa</a>
-                                            <a href="transactions.php?delete_id=<?= $t['transaction_id'] ?>" class="btn btn-sm btn-outline-danger"
-                                               onclick="return confirm('Xác nhận xóa giao dịch này?');">Xóa</a>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
+    <div class="card">
+        <div class="lbl">Tổng chi (đang lọc)</div>
+        <div class="big" style="color:#dc2626;">-<?= number_format($total_expense) ?> đ</div>
+    </div>
+    <div class="card">
+        <div class="lbl">Chênh lệch</div>
+        <div class="big"><?= number_format($total_income - $total_expense) ?> đ</div>
     </div>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html>
+
+<!-- Form Thêm / Sửa giao dịch (FR02) -->
+<div style="background:#fff;padding:18px;border:1px solid #d1d5db;border-radius:8px;">
+    <h2 style="margin-bottom:12px;"><?= $edit_data ? 'Cập nhật giao dịch' : 'Thêm giao dịch mới' ?></h2>
+    <form method="POST" action="transactions.php" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:end;">
+        <?php if ($edit_data): ?>
+            <input type="hidden" name="transaction_id" value="<?= $edit_data['transaction_id'] ?>">
+        <?php endif; ?>
+
+        <div>
+            <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px;">Danh mục *</label>
+            <select name="category_id" required style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:6px;">
+                <option value="">-- Chọn danh mục --</option>
+                <?php foreach ($cat_list as $cat): ?>
+                    <option value="<?= $cat['category_id'] ?>" <?= ($edit_data && $edit_data['category_id'] == $cat['category_id']) ? 'selected' : '' ?>>
+                        [<?= $cat['type'] === 'INCOME' ? 'Thu' : 'Chi' ?>] <?= htmlspecialchars($cat['name']) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+
+        <div>
+            <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px;">Số tiền (VNĐ) *</label>
+            <input type="number" name="amount" min="1" step="any" required value="<?= $edit_data ? $edit_data['amount'] : '' ?>" placeholder="VD: 50000" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:6px;">
+        </div>
+
+        <div>
+            <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px;">Ngày giao dịch *</label>
+            <input type="date" name="transaction_date" required value="<?= $edit_data ? $edit_data['transaction_date'] : date('Y-m-d') ?>" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:6px;">
+        </div>
+
+        <div>
+            <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px;">Ghi chú</label>
+            <input type="text" name="note" value="<?= $edit_data ? htmlspecialchars($edit_data['note']) : '' ?>" placeholder="Nội dung chi tiêu..." style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:6px;">
+        </div>
+
+        <div style="display:flex;gap:8px;">
+            <button type="submit" class="btn"><?= $edit_data ? 'Lưu cập nhật' : '+ Thêm giao dịch' ?></button>
+            <?php if ($edit_data): ?>
+                <a href="transactions.php" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;text-decoration:none;color:#333;">Hủy</a>
+            <?php endif; ?>
+        </div>
+    </form>
+</div>
+
+<!-- Thanh Lọc & Tìm kiếm giao dịch (FR04) -->
+<div style="background:#f9fafb;padding:16px;border:1px solid #d1d5db;border-radius:8px;">
+    <form method="GET" action="transactions.php" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end;">
+        <div>
+            <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Từ ngày</label>
+            <input type="date" name="from_date" value="<?= htmlspecialchars($from_date) ?>" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:6px;">
+        </div>
+        <div>
+            <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Đến ngày</label>
+            <input type="date" name="to_date" value="<?= htmlspecialchars($to_date) ?>" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:6px;">
+        </div>
+        <div>
+            <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Loại</label>
+            <select name="type" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:6px;">
+                <option value="">Tất cả</option>
+                <option value="INCOME" <?= $filter_type === 'INCOME' ? 'selected' : '' ?>>Khoản Thu</option>
+                <option value="EXPENSE" <?= $filter_type === 'EXPENSE' ? 'selected' : '' ?>>Khoản Chi</option>
+            </select>
+        </div>
+        <div>
+            <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Danh mục</label>
+            <select name="category_id" style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:6px;">
+                <option value="0">Tất cả danh mục</option>
+                <?php foreach ($cat_list as $cat): ?>
+                    <option value="<?= $cat['category_id'] ?>" <?= $filter_cat === (int)$cat['category_id'] ? 'selected' : '' ?>>
+                        <?= htmlspecialchars($cat['name']) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div>
+            <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Tìm ghi chú</label>
+            <input type="text" name="keyword" value="<?= htmlspecialchars($keyword) ?>" placeholder="Nhập từ khóa..." style="width:100%;padding:7px;border:1px solid #cbd5e1;border-radius:6px;">
+        </div>
+        <div style="display:flex;gap:6px;">
+            <button type="submit" class="btn">Lọc</button>
+            <a href="transactions.php" style="padding:7px 12px;border:1px solid #cbd5e1;border-radius:6px;text-decoration:none;color:#333;background:#fff;">Đặt lại</a>
+        </div>
+    </form>
+</div>
+
+<!-- Bảng danh sách giao dịch -->
+<div class="tablebox">
+    <table class="tb">
+        <thead>
+            <tr>
+                <th>Ngày</th>
+                <th>Loại</th>
+                <th>Danh mục</th>
+                <th>Ghi chú</th>
+                <th class="r">Số tiền</th>
+                <th style="text-align:center;">Thao tác</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php if (empty($transactions)): ?>
+                <tr>
+                    <td colspan="6" style="text-align:center;padding:20px;color:#6b7280;">Không tìm thấy giao dịch nào.</td>
+                </tr>
+            <?php else: ?>
+                <?php foreach ($transactions as $t): ?>
+                    <tr>
+                        <td><?= date('d/m/Y', strtotime($t['transaction_date'])) ?></td>
+                        <td>
+                            <span style="padding:3px 8px;border-radius:4px;font-size:12px;font-weight:600;background:<?= $t['category_type'] === 'INCOME' ? '#dcfce7;color:#166534' : '#fee2e2;color:#991b1b' ?>;">
+                                <?= $t['category_type'] === 'INCOME' ? 'Thu' : 'Chi' ?>
+                            </span>
+                        </td>
+                        <td><?= htmlspecialchars($t['category_name']) ?></td>
+                        <td><?= htmlspecialchars($t['note']) ?></td>
+                        <td class="r" style="font-weight:600;color:<?= $t['category_type'] === 'INCOME' ? '#16a34a' : '#dc2626' ?>;">
+                            <?= $t['category_type'] === 'INCOME' ? '+' : '-' ?><?= number_format($t['amount']) ?> đ
+                        </td>
+                        <td style="text-align:center;">
+                            <a href="transactions.php?edit_id=<?= $t['transaction_id'] ?>">Sửa</a> |
+                            <a href="transactions.php?delete_id=<?= $t['transaction_id'] ?>" style="color:#dc2626;" onclick="return confirm('Xác nhận xóa giao dịch này?');">Xóa</a>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+            <?php endif; ?>
+        </tbody>
+    </table>
+</div>
+
+<?php require __DIR__ . '/../includes/footer.php'; ?>
