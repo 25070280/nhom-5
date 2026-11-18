@@ -132,7 +132,7 @@ if ($form !== null) {
 $isEditing = $editData && !empty($editData['id']);
 
 // Danh sách danh mục của người dùng (cho ô chọn)
-$st = $pdo->prepare('SELECT id, name, type FROM categories WHERE user_id = ? ORDER BY type DESC, name ASC');
+$st = $pdo->prepare('SELECT id, name, type FROM categories WHERE user_id = ? ORDER BY (type = \'CHI\'), name ASC');
 $st->execute([$uid]);
 $catList = $st->fetchAll();
 
