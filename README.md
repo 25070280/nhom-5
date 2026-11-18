@@ -7,8 +7,8 @@
 
 | Họ tên | MSSV | Phụ trách |
 |---|---|---|
-| (điền họ tên thành viên 1) | (điền MSSV) | (ví dụ: FR01, Tổng quan, FR05, FR06) |
-| (điền họ tên thành viên 2) | (điền MSSV) | (ví dụ: FR02, FR03, FR04) |
+| Trần Thị Thùy Dương | 25071120 | FR01, Tổng quan, FR05, FR06 |
+| Doãn Thị Thu | 25070280 |  FR02, FR03, FR04 |
 
 ## Chức năng
 
